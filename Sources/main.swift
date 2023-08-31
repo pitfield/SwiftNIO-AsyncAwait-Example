@@ -18,6 +18,7 @@
 
 import Foundation
 import NIO
+import NIOSSL
 
 extension Channel {
     
@@ -177,17 +178,11 @@ class AsyncAwaitHandler: ChannelDuplexHandler {
 // data to stdout.  This demo code can be run against the NIOEchoServer or NIOChatServer examples
 // included in Swift-NIO (https://github.com/apple/swift-nio).
 
-let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+let host = "localhost"
+let port = 9999
+let useSSL = true
 
-let bootstrap = ClientBootstrap(group: group)
-    .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
-    .channelOption(ChannelOptions.maxMessagesPerRead, value: 1) // required for backpressure to work
-    .channelInitializer { channel in
-        channel.pipeline.addHandlers([
-//            ByteToMessageHandler(LineDelimiterCodec()), // see above NOTE
-            AsyncAwaitHandler()
-        ])
-    }
+let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
 
 defer {
     print("# group shutting down")
@@ -195,7 +190,32 @@ defer {
     print("# group shutdown")
 }
 
-let channel = try await bootstrap.connect(host: "localhost", port: 9999).get()
+let sslContext: NIOSSLContext? = try {
+    guard useSSL else { return nil }
+    var configuration = TLSConfiguration.makeClientConfiguration()
+    configuration.certificateVerification = .none
+    return try NIOSSLContext(configuration: configuration)
+}()
+
+let bootstrap = ClientBootstrap(group: group)
+    .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+    .channelOption(ChannelOptions.maxMessagesPerRead, value: 1) // required for backpressure to work
+    .channelInitializer { channel in
+        
+        var handlers = [ChannelHandler]()
+        
+        if let sslContext {
+            try! handlers.append(NIOSSLClientHandler(context: sslContext, serverHostname: nil))
+            print("# added SSL handler to pipeline")
+        }
+        
+//        handlers.append(ByteToMessageHandler(LineDelimiterCodec())) // see above NOTE
+        handlers.append(AsyncAwaitHandler())
+        
+        return channel.pipeline.addHandlers(handlers)
+    }
+
+let channel = try await bootstrap.connect(host: host, port: port).get()
 print("# channel connected")
 
 let reader = Task {
