@@ -65,11 +65,11 @@ class AsyncAwaitHandler: ChannelDuplexHandler {
     
     /// An upper limit on the number of incoming bytes to buffer, above which we'll pause asking
     /// SwiftNIO for more data.
-    private var unconsumedBytesHighWatermark: Int
+    private let unconsumedBytesHighWatermark: Int
     
     /// A lower limit on the number of incoming bytes to buffer, below which we'll resume asking
     /// SwiftNIO for more data.
-    private var unconsumedBytesLowWatermark: Int
+    private let unconsumedBytesLowWatermark: Int
     
     /// Initializes the handler.
     ///
@@ -173,14 +173,10 @@ class AsyncAwaitHandler: ChannelDuplexHandler {
 //
 // MARK: The channel consumer
 //
-// To demonstrate use of the async/await APIs added above, this shows a simple client that reads
-// lines from stdin, writes those lines to a socket, reads data from that socket, and prints that
-// data to stdout.  This demo code can be run against the NIOEchoServer or NIOChatServer examples
-// included in Swift-NIO (https://github.com/apple/swift-nio).
 
 let host = "localhost"
 let port = 9999
-let useSSL = true
+let useSSL = false
 
 let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
 
@@ -233,7 +229,7 @@ let reader = Task {
 
 let writer = Task {
     do {
-        while let line = await asyncReadLine() {
+        while let line = await asyncReadLineFromStdin() {
             let buffer = channel.allocator.buffer(string: line)
             try await channel.asyncWrite(buffer)
         }
@@ -251,9 +247,9 @@ await writer.value
 reader.cancel()
 await reader.value
 
-// Finally, close the channel.
+// Finally, close the channel (if not already closed).
 print("# channel closing")
-try await channel.close().get()
+try? await channel.close().get()
 print("# channel closed")
 
 
@@ -281,7 +277,7 @@ private class LineDelimiterCodec: ByteToMessageDecoder {
 /// Asynchronously reads a line from stdin.
 ///
 /// - Returns: the line, including the newline terminator; or nil if EOF
-func asyncReadLine() async -> String? {
+func asyncReadLineFromStdin() async -> String? {
     return await withCheckedContinuation { continuation in
         DispatchQueue.global().async {
             let line = readLine(strippingNewline: false)
